@@ -1,6 +1,7 @@
 package mapstructure
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"net"
@@ -81,6 +82,94 @@ func TestComposeDecodeHookFunc_kinds(t *testing.T) {
 	}
 	if f2From != reflect.Int {
 		t.Fatalf("bad: %#v", f2From)
+	}
+}
+
+func TestOrComposeDecodeHookFunc(t *testing.T) {
+	f1 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return data.(string) + "foo", nil
+	}
+
+	f2 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return data.(string) + "bar", nil
+	}
+
+	f := OrComposeDecodeHookFunc(f1, f2)
+
+	result, err := DecodeHookExec(
+		f, reflect.ValueOf(""), reflect.ValueOf([]byte("")))
+	if err != nil {
+		t.Fatalf("bad: %s", err)
+	}
+	if result.(string) != "foo" {
+		t.Fatalf("bad: %#v", result)
+	}
+}
+
+func TestOrComposeDecodeHookFunc_correctValueIsLast(t *testing.T) {
+	f1 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return nil, errors.New("f1 error")
+	}
+
+	f2 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return nil, errors.New("f2 error")
+	}
+
+	f3 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return data.(string) + "bar", nil
+	}
+
+	f := OrComposeDecodeHookFunc(f1, f2, f3)
+
+	result, err := DecodeHookExec(
+		f, reflect.ValueOf(""), reflect.ValueOf([]byte("")))
+	if err != nil {
+		t.Fatalf("bad: %s", err)
+	}
+	if result.(string) != "bar" {
+		t.Fatalf("bad: %#v", result)
+	}
+}
+
+func TestOrComposeDecodeHookFunc_err(t *testing.T) {
+	f1 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return nil, errors.New("f1 error")
+	}
+
+	f2 := func(
+		f reflect.Kind,
+		t reflect.Kind,
+		data interface{}) (interface{}, error) {
+		return nil, errors.New("f2 error")
+	}
+
+	f := OrComposeDecodeHookFunc(f1, f2)
+
+	_, err := DecodeHookExec(
+		f, reflect.ValueOf(""), reflect.ValueOf([]byte("")))
+	if err == nil {
+		t.Fatalf("bad: should return an error")
+	}
+	if err.Error() != "f1 error\nf2 error\n" {
+		t.Fatalf("bad: %s", err)
 	}
 }
 
@@ -454,6 +543,8 @@ func TestStructToMapHookFuncTabled(t *testing.T) {
 }
 
 func TestTextUnmarshallerHookFunc(t *testing.T) {
+	type MyString string
+
 	cases := []struct {
 		f, t   reflect.Value
 		result interface{}
@@ -462,8 +553,9 @@ func TestTextUnmarshallerHookFunc(t *testing.T) {
 		{reflect.ValueOf("42"), reflect.ValueOf(big.Int{}), big.NewInt(42), false},
 		{reflect.ValueOf("invalid"), reflect.ValueOf(big.Int{}), nil, true},
 		{reflect.ValueOf("5"), reflect.ValueOf("5"), "5", false},
+		{reflect.ValueOf(json.Number("42")), reflect.ValueOf(big.Int{}), big.NewInt(42), false},
+		{reflect.ValueOf(MyString("42")), reflect.ValueOf(big.Int{}), big.NewInt(42), false},
 	}
-
 	for i, tc := range cases {
 		f := TextUnmarshallerHookFunc()
 		actual, err := DecodeHookExec(f, tc.f, tc.t)
